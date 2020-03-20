@@ -35,11 +35,16 @@ Then, run the migration with:
       network_id: '3'
     },
     development: {
-      // For trontools/quickstart docker image
       privateKey: 'da146374a75310b9666e834ee4ad0866d6f4035967bfc76217c5a495fff9f0d0',
-      userFeePercentage: 0,
       fullHost: 'http://127.0.0.1:' + port,
       network_id: '9'
+    },
+    dappmainchain: {
+      // For trontools/quickstart docker image
+      privateKey: process.env.PRIVATE_KEY_SHASTA,
+      userFeePercentage: 0,
+      fullHost: 'http://47.252.85.111:8090',
+      network_id: '10'
     },
     compilers: {
       solc: {

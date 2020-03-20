@@ -12,9 +12,11 @@ interface IERC20Burnable {
   function burnFrom(address account, uint256 amount) external returns (bool);
 }
 
-contract Chain is AdministratorOwnable {
+contract RgsOps is AdministratorOwnable {
   // Library
   using SafeMath for uint256;
+
+  uint redeemableTime = 60;
 
   // States
 
@@ -30,6 +32,9 @@ contract Chain is AdministratorOwnable {
 
   // totalStakeAmount is total stake amount.
   uint256 public totalStakeAmount;
+
+  // stakedAddresses stores the tokens that are staked on this contract.
+  address[] public stakedAddresses;
 
   // registeredTokens stores the tokens that are registed on this contract.
   address[] public registeredTokens;
@@ -158,7 +163,7 @@ contract Chain is AdministratorOwnable {
 
   event Burn(
     address indexed addr,       // address to burn token.
-    uint cutoff                 // the timestamp to burn.
+    uint cutoff,                // the timestamp to burn.
     uint256 value               // the burn value.
   );
 
@@ -374,6 +379,9 @@ contract Chain is AdministratorOwnable {
   {
     IERC20 token = IERC20(stakeTokenAddress);
     require(token.transferFrom(msg.sender, address(this), value));
+    if(stakeMap[msg.sender] == 0) {
+      stakedAddresses.push(msg.sender);
+    }
     stakeMap[msg.sender] = stakeMap[msg.sender].add(value);
     totalStakeAmount = totalStakeAmount.add(value);
     emit Stake(stakeTokenAddress, msg.sender, value, stakeMap[msg.sender]);
@@ -393,6 +401,17 @@ contract Chain is AdministratorOwnable {
     stakable
   {
     stakeMap[msg.sender] = stakeMap[msg.sender].sub(value);
+    if(stakeMap[msg.sender] == 0 ) {
+      delete stakeMap[msg.sender];
+      uint len = stakedAddresses.length;
+      for (uint i = 0; i < len - 1; i++){
+        if(stakedAddresses[i] ==  msg.sender) {
+          stakedAddresses[i] = stakedAddresses[len-1];
+        }
+      }
+      delete stakedAddresses[len-1];
+      stakedAddresses.length--;
+    }
     totalStakeAmount = totalStakeAmount.sub(value);
     UnstakeRecord memory record = UnstakeRecord(value, now);
     unstakeMap[msg.sender].push(record);
@@ -408,7 +427,7 @@ contract Chain is AdministratorOwnable {
     whenNotPaused
     stakable
   {
-    require(unstakeMap[msg.sender][0].timestamp < now - 86400);
+    require(unstakeMap[msg.sender][0].timestamp < now - redeemableTime);
     IERC20 token = IERC20(stakeTokenAddress);
     require(token.transfer(msg.sender, unstakeMap[msg.sender][0].amount));
     emit Redeem(stakeTokenAddress, msg.sender, unstakeMap[msg.sender][0].amount);
@@ -418,8 +437,11 @@ contract Chain is AdministratorOwnable {
       unstakeMap[msg.sender][i] = unstakeMap[msg.sender][i+1];
     }
     delete unstakeMap[msg.sender][len-1];
-
     unstakeMap[msg.sender].length--;
+
+    if(unstakeMap[msg.sender].length == 0) {
+      delete unstakeMap[msg.sender];
+    }
   }
 
   /**
@@ -489,15 +511,18 @@ contract Chain is AdministratorOwnable {
   )
     public
     whenNotPaused
+    onlyAdministrator
     burnable
   {
     uint _len = stakeBurnMap[addr].length;
     uint256 _burnAmount;
     uint _deleteCount = 0;
     uint _emptyIndex = 0;
+
+    require(_len > 0);
     for (uint i = 0; i < _len; i++){
       StakeBurnRecord memory record = stakeBurnMap[addr][i];
-      if(record.timestamp < cutoff ) {
+      if(record.timestamp <= cutoff ) {
         _burnAmount = _burnAmount.add(record.amount);
         delete stakeBurnMap[addr][i];
         _deleteCount++;
@@ -509,21 +534,23 @@ contract Chain is AdministratorOwnable {
         }
       }
     }
+
     for (uint i = 0; i < _deleteCount; i++) {
       stakeBurnMap[addr].length--;
     }
 
     if (!addressContainsStakeBurnRcord(addr)) {
       uint resultLen = stakeBurnAddresses.length;
-
-      for(uint i = 0; i < resultLen - 1; i++) {
+      for(uint i = 0; i < resultLen; i++) {
         if (stakeBurnAddresses[i] == addr) {
-          stakeBurnAddresses[i] = stakeBurnAddresses[stakeBurnAddresses.length - 1];
+          if(i != resultLen -1) {
+            stakeBurnAddresses[i] = stakeBurnAddresses[stakeBurnAddresses.length - 1];
+          }
+          delete stakeBurnAddresses[stakeBurnAddresses.length - 1];
+          stakeBurnAddresses.length --;
           break;
         }
       }
-      delete stakeBurnAddresses[stakeBurnAddresses.length - 1];
-      stakeBurnAddresses.length--;
     }
 
     if (_burnAmount > 0) {
@@ -546,5 +573,9 @@ contract Chain is AdministratorOwnable {
 
   function getStakeBurnAddresses() public view returns (address[] memory) {
       return stakeBurnAddresses;
+  }
+
+  function getStakedAddresses() public view returns (address[] memory) {
+      return stakedAddresses;
   }
 }
